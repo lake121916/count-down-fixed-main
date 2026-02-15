@@ -49,6 +49,8 @@ const AdminPanel = () => {
   const [newRoleSelection, setNewRoleSelection] = useState("");
   const [replyingToMessageId, setReplyingToMessageId] = useState(null);
   const [replyMessage, setReplyMessage] = useState("");
+  const [updateError, setUpdateError] = useState(null);
+  const [updateSuccess, setUpdateSuccess] = useState(null);
 
   // ------------------- LOAD DATA -------------------
 
@@ -61,7 +63,7 @@ const AdminPanel = () => {
       console.error("Error fetching users:", err);
     }
     setLoading(false);
-  }, [setUsers, setLoading]);
+  }, []);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -69,24 +71,23 @@ const AdminPanel = () => {
       const snapshot = await getDocs(collection(db, "events"));
       const eventsData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setEvents(eventsData);
-      console.log("Events data:", eventsData); // Debug log
+      console.log("Events data:", eventsData);
     } catch (err) {
       console.error("Error fetching events:", err);
     }
     setLoading(false);
-  }, [setEvents, setLoading]);
+  }, []);
 
   const fetchMessages = useCallback(async () => {
     try {
       const snapshot = await getDocs(collection(db, "contact_messages"));
       const msgs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      // Sort by date desc
       msgs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setMessages(msgs);
     } catch (err) {
       console.error("Error fetching messages:", err);
     }
-  }, [setMessages]);
+  }, []);
 
   const fetchDashboard = useCallback(async () => {
     if (!currentUser) return;
@@ -100,7 +101,7 @@ const AdminPanel = () => {
     } catch (err) {
       console.error("Error fetching dashboard:", err);
     }
-  }, [currentUser, setDashboardEvents]);
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser?.isAdmin) {
@@ -110,6 +111,17 @@ const AdminPanel = () => {
       fetchDashboard();
     }
   }, [currentUser, fetchUsers, fetchEvents, fetchMessages, fetchDashboard]);
+
+  // Clear messages after 3 seconds
+  useEffect(() => {
+    if (updateError || updateSuccess) {
+      const timer = setTimeout(() => {
+        setUpdateError(null);
+        setUpdateSuccess(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [updateError, updateSuccess]);
 
   // ------------------- IMAGE VIEWER FUNCTIONS -------------------
   const handleViewImage = (imageURL) => {
@@ -160,12 +172,11 @@ const AdminPanel = () => {
     try {
       const dashboardRef = doc(db, "users", currentUser.uid, "dashboard", eventId);
       await deleteDoc(dashboardRef);
-
       setDashboardEvents(dashboardEvents.filter(event => event.id !== eventId));
-      alert("Event removed from dashboard!");
+      setUpdateSuccess("Event removed from dashboard!");
     } catch (err) {
       console.error("Error removing from dashboard:", err);
-      alert("Error removing event from dashboard: " + err.message);
+      setUpdateError("Error removing event from dashboard: " + err.message);
     }
   };
 
@@ -174,8 +185,10 @@ const AdminPanel = () => {
     try {
       await deleteDoc(doc(db, "contact_messages", id));
       setMessages(messages.filter(m => m.id !== id));
+      setUpdateSuccess("Message deleted successfully!");
     } catch (err) {
       console.error("Error deleting message:", err);
+      setUpdateError("Error deleting message: " + err.message);
     }
   };
 
@@ -191,12 +204,11 @@ const AdminPanel = () => {
 
   const handleSendReply = async (msg) => {
     if (!replyMessage.trim()) {
-      alert("Please enter a reply message.");
+      setUpdateError("Please enter a reply message.");
       return;
     }
 
     try {
-      // Store reply in Firestore for user to see in their Messages tab
       await addDoc(collection(db, "admin_replies"), {
         originalMessageId: msg.id,
         originalMessage: msg.message,
@@ -208,12 +220,12 @@ const AdminPanel = () => {
         read: false
       });
 
-      alert("Reply sent successfully! The user will see it in their Messages tab.");
+      setUpdateSuccess("Reply sent successfully! The user will see it in their Messages tab.");
       setReplyingToMessageId(null);
       setReplyMessage("");
     } catch (err) {
       console.error("Error sending reply:", err);
-      alert("Error sending reply: " + err.message);
+      setUpdateError("Error sending reply: " + err.message);
     }
   };
 
@@ -253,16 +265,15 @@ const AdminPanel = () => {
     return "General";
   };
 
-  // Helper to get event name - check multiple possible fields
   const getEventName = (event) => {
     return event.name || event.eventName || event.title || "Untitled Event";
   };
 
-  // Helper to get event title - check multiple possible fields
   const getEventTitle = (event) => {
     return event.title || event.eventTitle || "No Title";
   };
 
+  // ------------------- ROLE MANAGEMENT FUNCTIONS -------------------
   const startEditing = (user) => {
     setEditingUserId(user.id);
     setNewRoleSelection(user.role || 'user');
@@ -273,14 +284,90 @@ const AdminPanel = () => {
     setNewRoleSelection("");
   };
 
+  const validateRoleUpdate = (userId, newRole) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+      setUpdateError("User not found");
+      return false;
+    }
+    
+    // Prevent admin from changing their own role (optional)
+    if (user.email === currentUser?.email && newRole !== 'admin') {
+      if (!window.confirm("You are changing your own admin role. Are you sure?")) {
+        return false;
+      }
+    }
+    
+    return true;
+  };
+
   const handleSaveRole = async (userId) => {
     try {
-      await updateDoc(doc(db, "users", userId), { role: newRoleSelection });
+      // Validate role selection
+      if (!newRoleSelection) {
+        setUpdateError("Please select a role");
+        return;
+      }
+
+      // Validate user
+      if (!validateRoleUpdate(userId, newRoleSelection)) {
+        return;
+      }
+
+      setLoading(true);
+
+      // Get reference to the user document
+      const userRef = doc(db, "users", userId);
+      
+      // Update the role
+      await updateDoc(userRef, { 
+        role: newRoleSelection,
+        updatedAt: serverTimestamp()
+      });
+
+      // Update local state
+      setUsers(prevUsers => 
+        prevUsers.map(user => 
+          user.id === userId 
+            ? { ...user, role: newRoleSelection }
+            : user
+        )
+      );
+
+      // Reset editing state
       setEditingUserId(null);
-      fetchUsers();
+      setNewRoleSelection("");
+      
+      // Show success message
+      setUpdateSuccess("Role updated successfully!");
+      
     } catch (err) {
       console.error("Error updating role:", err);
-      alert("Failed to update role");
+      
+      // Detailed error message
+      let errorMessage = "Failed to update role. ";
+      
+      if (err.code === 'permission-denied') {
+        errorMessage += "You don't have permission to update roles.";
+      } else if (err.code === 'not-found') {
+        errorMessage += "User not found.";
+      } else if (err.code === 'unavailable') {
+        errorMessage += "Network error. Please check your connection.";
+      } else {
+        errorMessage += err.message || "Please try again.";
+      }
+      
+      setUpdateError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e, userId) => {
+    if (e.key === 'Enter') {
+      handleSaveRole(userId);
+    } else if (e.key === 'Escape') {
+      cancelEditing();
     }
   };
 
@@ -289,8 +376,10 @@ const AdminPanel = () => {
     try {
       await deleteDoc(doc(db, "users", userId));
       fetchUsers();
+      setUpdateSuccess("User deleted successfully!");
     } catch (err) {
       console.error("Error deleting user:", err);
+      setUpdateError("Error deleting user: " + err.message);
     }
   };
 
@@ -298,8 +387,10 @@ const AdminPanel = () => {
     try {
       await updateDoc(doc(db, "events", eventId), { status: "approved" });
       fetchEvents();
+      setUpdateSuccess("Event approved successfully!");
     } catch (err) {
       console.error("Error approving event:", err);
+      setUpdateError("Error approving event: " + err.message);
     }
   };
 
@@ -307,8 +398,10 @@ const AdminPanel = () => {
     try {
       await updateDoc(doc(db, "events", eventId), { status: "rejected" });
       fetchEvents();
+      setUpdateSuccess("Event rejected successfully!");
     } catch (err) {
       console.error("Error rejecting event:", err);
+      setUpdateError("Error rejecting event: " + err.message);
     }
   };
 
@@ -317,8 +410,10 @@ const AdminPanel = () => {
     try {
       await deleteDoc(doc(db, "events", eventId));
       fetchEvents();
+      setUpdateSuccess("Event deleted successfully!");
     } catch (err) {
       console.error("Error deleting event:", err);
+      setUpdateError("Error deleting event: " + err.message);
     }
   };
 
@@ -334,16 +429,16 @@ const AdminPanel = () => {
     user.phoneNumber?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // User statistics calculations - UPDATED TO HANDLE BOTH "worker" AND "Officer"
+  // User statistics calculations
   const userStats = {
     total: users.length,
     admins: users.filter(u => u.role === 'admin').length,
     heads: users.filter(u => u.role === 'head').length,
-    Officers: users.filter(u => u.role === 'Officer' || u.role === 'worker').length,
+    officers: users.filter(u => u.role === 'Officer' || u.role === 'worker').length,
     regular: users.filter(u => !u.role || u.role === 'user').length
   };
 
-  // Function to display role in UI - handles both "worker" and "Officer"
+  // Function to display role in UI
   const displayRole = (role) => {
     if (role === 'worker') return 'Officer';
     return role || 'user';
@@ -355,12 +450,27 @@ const AdminPanel = () => {
   // ------------------- UI -------------------
   return (
     <div className="admin-panel-container">
+      {/* Notification Messages */}
+      {updateError && (
+        <div className="notification error">
+          <X size={16} />
+          <span>{updateError}</span>
+        </div>
+      )}
+      {updateSuccess && (
+        <div className="notification success">
+          <Check size={16} />
+          <span>{updateSuccess}</span>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className={`admin-tabs-vertical ${isCollapsed ? "collapsed" : ""}`}>
         <button
           className="collapse-btn"
           onClick={() => setIsCollapsed(!isCollapsed)}
           title={isCollapsed ? "Expand" : "Collapse"}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ArrowLeftCircle
             className={`collapse-icon ${isCollapsed ? "rotated" : ""}`}
@@ -370,6 +480,7 @@ const AdminPanel = () => {
         <button
           className={activeTab === "users" ? "active" : ""}
           onClick={() => setActiveTab("users")}
+          aria-label="Users"
         >
           <Users />
           {!isCollapsed && <span>Users</span>}
@@ -378,6 +489,7 @@ const AdminPanel = () => {
         <button
           className={activeTab === "events" ? "active" : ""}
           onClick={() => setActiveTab("events")}
+          aria-label="Events"
         >
           <CalendarDays />
           {!isCollapsed && <span>Events</span>}
@@ -386,6 +498,7 @@ const AdminPanel = () => {
         <button
           className={activeTab === "dashboard" ? "active" : ""}
           onClick={() => setActiveTab("dashboard")}
+          aria-label="Dashboard"
         >
           <BarChart3 />
           {!isCollapsed && <span>Dashboard</span>}
@@ -394,6 +507,7 @@ const AdminPanel = () => {
         <button
           className={activeTab === "analytics" ? "active" : ""}
           onClick={() => setActiveTab("analytics")}
+          aria-label="Analytics"
         >
           <BarChart3 />
           {!isCollapsed && <span>Analytics</span>}
@@ -402,6 +516,7 @@ const AdminPanel = () => {
         <button
           className={activeTab === "messages" ? "active" : ""}
           onClick={() => setActiveTab("messages")}
+          aria-label="Messages"
         >
           <Mail />
           {!isCollapsed && <span>Messages</span>}
@@ -422,6 +537,7 @@ const AdminPanel = () => {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="search-input"
+                  aria-label="Search users"
                 />
               </div>
             </div>
@@ -451,8 +567,8 @@ const AdminPanel = () => {
               <div className="stat-card">
                 <Briefcase size={24} />
                 <div>
-                  <h3>Officer</h3>
-                  <p>{userStats.Officers}</p>
+                  <h3>Officers</h3>
+                  <p>{userStats.officers}</p>
                 </div>
               </div>
               <div className="stat-card">
@@ -465,102 +581,108 @@ const AdminPanel = () => {
             </div>
 
             {loading ? (
-              <p>Loading users...</p>
+              <p className="loading-message">Loading users...</p>
             ) : filteredUsers.length === 0 ? (
-              <p>No users found.</p>
+              <p className="no-data-message">No users found.</p>
             ) : (
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>No</th>
-                    <th>Full Name</th>
-                    <th>Phone</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Join Date</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.map((user, index) => (
-                    <tr key={user.id}>
-                      <td>{index + 1}</td>
-                      <td>
-                        <div className="user-info">
-                          <strong>{user.fullName || "N/A"}</strong>
-                        </div>
-                      </td>
-                      <td>{user.phoneNumber || "N/A"}</td>
-                      <td>{user.email}</td>
-                      <td>
-                        {editingUserId === user.id ? (
-                          <div className="role-edit-container" style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                            <select
-                              value={newRoleSelection}
-                              onChange={(e) => setNewRoleSelection(e.target.value)}
-                              className="role-select"
-                              style={{ padding: '4px', borderRadius: '4px', borderColor: '#cbd5e1' }}
-                            >
-                              <option value="user">User</option>
-                              <option value="officer">Officer</option>
-                              <option value="head">Head</option>
-                              <option value="admin">Admin</option>
-                            </select>
+              <div className="table-responsive">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>No</th>
+                      <th>Full Name</th>
+                      <th>Phone</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Join Date</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.map((user, index) => (
+                      <tr key={user.id}>
+                        <td data-label="No">{index + 1}</td>
+                        <td data-label="Full Name">
+                          <div className="user-info">
+                            <strong>{user.fullName || "N/A"}</strong>
+                          </div>
+                        </td>
+                        <td data-label="Phone">{user.phoneNumber || "N/A"}</td>
+                        <td data-label="Email">{user.email}</td>
+                        <td data-label="Role">
+                          {editingUserId === user.id ? (
+                            <div className="role-edit-container">
+                              <select
+                                value={newRoleSelection}
+                                onChange={(e) => setNewRoleSelection(e.target.value)}
+                                onKeyDown={(e) => handleKeyDown(e, user.id)}
+                                className="role-select"
+                                autoFocus
+                                aria-label="Select role"
+                              >
+                                <option value="user">User</option>
+                                <option value="officer">Officer</option>
+                                <option value="head">Head</option>
+                                <option value="admin">Admin</option>
+                              </select>
+                              <button
+                                onClick={() => handleSaveRole(user.id)}
+                                className="save-btn"
+                                title="Save role"
+                                aria-label="Save role"
+                              >
+                                <Check size={18} />
+                              </button>
+                              <button
+                                onClick={cancelEditing}
+                                className="cancel-btn"
+                                title="Cancel"
+                                aria-label="Cancel editing"
+                              >
+                                <X size={18} />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className={`role-badge role-${user.role || 'user'}`}>
+                              {displayRole(user.role)}
+                            </span>
+                          )}
+                        </td>
+                        <td data-label="Join Date">{formatDate(user.createdAt)}</td>
+                        <td data-label="Actions">
+                          <div className="action-buttons">
                             <button
-                              onClick={() => handleSaveRole(user.id)}
-                              className="save-btn"
-                              title="Save"
-                              style={{ background: 'none', border: 'none', color: '#16a34a', cursor: 'pointer', padding: '2px' }}
+                              className="view-btn"
+                              onClick={() => setSelectedUser(user)}
+                              title="View Details"
+                              aria-label="View user details"
                             >
-                              <Check size={18} />
+                              <Eye size={16} />
                             </button>
                             <button
-                              onClick={cancelEditing}
-                              className="cancel-btn"
-                              title="Cancel"
-                              style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', padding: '2px' }}
+                              className="edit-btn"
+                              onClick={() => startEditing(user)}
+                              title="Edit Role"
+                              disabled={editingUserId !== null}
+                              aria-label="Edit user role"
                             >
-                              <X size={18} />
+                              <Edit3 size={16} />
+                            </button>
+                            <button
+                              className="delete-btn"
+                              onClick={() => handleDeleteUser(user.id)}
+                              title="Delete User"
+                              aria-label="Delete user"
+                            >
+                              <Trash size={16} />
                             </button>
                           </div>
-                        ) : (
-                          <span className={`role-badge role-${user.role || 'user'}`}>
-                            {displayRole(user.role)}
-                          </span>
-                        )}
-                      </td>
-                      <td>{formatDate(user.createdAt)}</td>
-                      <td>
-                        <div className="action-buttons">
-                          <button
-                            className="view-btn"
-                            onClick={() => setSelectedUser(user)}
-                            title="View Details"
-                          >
-                            <Eye size={16} />
-                          </button>
-                          <button
-                            className="edit-btn"
-                            onClick={() => startEditing(user)}
-                            title="Edit Role"
-                            disabled={editingUserId !== null}
-                            style={{ opacity: editingUserId !== null ? 0.5 : 1 }}
-                          >
-                            <Edit3 size={16} />
-                          </button>
-                          <button
-                            className="delete-btn"
-                            onClick={() => handleDeleteUser(user.id)}
-                            title="Delete User"
-                          >
-                            <Trash size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}
@@ -574,6 +696,7 @@ const AdminPanel = () => {
                 <button
                   className={`admin-btn ${showPendingOnly ? 'active' : ''}`}
                   onClick={() => setShowPendingOnly(!showPendingOnly)}
+                  aria-label={showPendingOnly ? "Show all events" : "Show pending only"}
                 >
                   {showPendingOnly ? "Show All Events" : "Show Pending Only"}
                 </button>
@@ -622,105 +745,111 @@ const AdminPanel = () => {
             </div>
 
             {loading ? (
-              <p>Loading events...</p>
+              <p className="loading-message">Loading events...</p>
             ) : displayedEvents.length === 0 ? (
-              <p>No events found.</p>
+              <p className="no-data-message">No events found.</p>
             ) : (
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Event Name</th>
-                    <th>Event Title</th>
-                    <th>Type</th>
-                    <th>Proposed By</th>
-                    <th>Date & Time</th>
-                    <th>Location</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayedEvents.map((ev) => (
-                    <tr key={ev.id}>
-                      <td>
-                        <strong>{getEventName(ev)}</strong>
-                        {ev.description && (
-                          <div className="event-description-preview">
-                            {ev.description.length > 100
-                              ? `${ev.description.substring(0, 100)}...`
-                              : ev.description
-                            }
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div className="event-title-cell">
-                          {ev.title ? (
-                            <span className="event-title-badge">{getEventTitle(ev)}</span>
-                          ) : (
-                            <span className="no-title">No Title</span>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <span className="event-type">{getEventType(ev)}</span>
-                      </td>
-                      <td>{ev.proposedBy || "N/A"}</td>
-                      <td>
-                        <div>
-                          <div>{formatDate(ev.date)}</div>
-                          {ev.time && <small>{formatTime(ev.time)}</small>}
-                        </div>
-                      </td>
-                      <td>{ev.location || "N/A"}</td>
-                      <td>
-                        <span className={`status-badge status-${ev.status || 'pending'}`}>
-                          {ev.status || "pending"}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="action-buttons">
-                          <button
-                            className="view-btn"
-                            onClick={() => {
-                              console.log("Selected event:", ev); // Debug log
-                              setSelectedEvent(ev);
-                            }}
-                            title="View Details"
-                          >
-                            <Eye size={16} />
-                          </button>
-                          {ev.status === 'pending_admin' && (
-                            <>
-                              <button
-                                className="approve-btn"
-                                onClick={() => handleApproveEvent(ev.id)}
-                                title="Approve Event"
-                              >
-                                <Check size={16} />
-                              </button>
-                              <button
-                                className="reject-btn"
-                                onClick={() => handleRejectEvent(ev.id)}
-                                title="Reject Event"
-                              >
-                                <X size={16} />
-                              </button>
-                            </>
-                          )}
-                          <button
-                            className="delete-btn"
-                            onClick={() => handleDeleteEvent(ev.id)}
-                            title="Delete Event"
-                          >
-                            <Trash size={16} />
-                          </button>
-                        </div>
-                      </td>
+              <div className="table-responsive">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Event Name</th>
+                      <th>Event Title</th>
+                      <th>Type</th>
+                      <th>Proposed By</th>
+                      <th>Date & Time</th>
+                      <th>Location</th>
+                      <th>Status</th>
+                      <th>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {displayedEvents.map((ev) => (
+                      <tr key={ev.id}>
+                        <td data-label="Event Name">
+                          <strong>{getEventName(ev)}</strong>
+                          {ev.description && (
+                            <div className="event-description-preview">
+                              {ev.description.length > 100
+                                ? `${ev.description.substring(0, 100)}...`
+                                : ev.description
+                              }
+                            </div>
+                          )}
+                        </td>
+                        <td data-label="Event Title">
+                          <div className="event-title-cell">
+                            {ev.title ? (
+                              <span className="event-title-badge">{getEventTitle(ev)}</span>
+                            ) : (
+                              <span className="no-title">No Title</span>
+                            )}
+                          </div>
+                        </td>
+                        <td data-label="Type">
+                          <span className="event-type">{getEventType(ev)}</span>
+                        </td>
+                        <td data-label="Proposed By">{ev.proposedBy || "N/A"}</td>
+                        <td data-label="Date & Time">
+                          <div>
+                            <div>{formatDate(ev.date)}</div>
+                            {ev.time && <small>{formatTime(ev.time)}</small>}
+                          </div>
+                        </td>
+                        <td data-label="Location">{ev.location || "N/A"}</td>
+                        <td data-label="Status">
+                          <span className={`status-badge status-${ev.status || 'pending'}`}>
+                            {ev.status || "pending"}
+                          </span>
+                        </td>
+                        <td data-label="Actions">
+                          <div className="action-buttons">
+                            <button
+                              className="view-btn"
+                              onClick={() => {
+                                console.log("Selected event:", ev);
+                                setSelectedEvent(ev);
+                              }}
+                              title="View Details"
+                              aria-label="View event details"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            {ev.status === 'pending_admin' && (
+                              <>
+                                <button
+                                  className="approve-btn"
+                                  onClick={() => handleApproveEvent(ev.id)}
+                                  title="Approve Event"
+                                  aria-label="Approve event"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button
+                                  className="reject-btn"
+                                  onClick={() => handleRejectEvent(ev.id)}
+                                  title="Reject Event"
+                                  aria-label="Reject event"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              className="delete-btn"
+                              onClick={() => handleDeleteEvent(ev.id)}
+                              title="Delete Event"
+                              aria-label="Delete event"
+                            >
+                              <Trash size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}
@@ -730,7 +859,7 @@ const AdminPanel = () => {
           <>
             <h2>My Dashboard</h2>
             {dashboardEvents.length === 0 ? (
-              <p>No events added yet.</p>
+              <p className="no-data-message">No events added yet.</p>
             ) : (
               <div className="dashboard-grid">
                 {dashboardEvents.map((event) => (
@@ -752,10 +881,12 @@ const AdminPanel = () => {
                           src={event.imageURL}
                           alt="event"
                           className="dashboard-image"
+                          loading="lazy"
                         />
                         <button
                           className="view-full-image-btn"
                           onClick={() => handleViewImage(event.imageURL)}
+                          aria-label="View full image"
                         >
                           <Eye size={14} /> View Full Image
                         </button>
@@ -764,6 +895,7 @@ const AdminPanel = () => {
                     <button
                       onClick={() => removeFromDashboard(event.id)}
                       className="btn-remove-dashboard"
+                      aria-label="Remove from dashboard"
                     >
                       <Trash size={12} /> Remove
                     </button>
@@ -773,8 +905,6 @@ const AdminPanel = () => {
             )}
           </>
         )}
-
-
 
         {/* MESSAGES TAB */}
         {activeTab === "messages" && (
@@ -793,89 +923,57 @@ const AdminPanel = () => {
             ) : (
               <div className="messages-list">
                 {messages.map((msg) => (
-                  <div key={msg.id} className="message-card" style={{
-                    background: 'white',
-                    padding: '20px',
-                    marginBottom: '15px',
-                    borderRadius: '12px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-                    position: 'relative'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <div key={msg.id} className="message-card">
+                    <div className="message-header">
                       <div>
-                        <h4 style={{ margin: 0, color: '#333' }}>{msg.name}</h4>
-                        <small style={{ color: '#666' }}>{msg.email}</small>
+                        <h4>{msg.name}</h4>
+                        <small>{msg.email}</small>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <small style={{ color: '#888', display: 'block' }}>
-                          {formatDate(msg.createdAt)}
-                        </small>
-                        <small style={{ color: '#888' }}>
-                          {formatTime(msg.createdAt)}
-                        </small>
+                      <div className="message-time">
+                        <small>{formatDate(msg.createdAt)}</small>
+                        <small>{formatTime(msg.createdAt)}</small>
                       </div>
                     </div>
 
-                    <div style={{
-                      background: '#f8f9fa',
-                      padding: '15px',
-                      borderRadius: '8px',
-                      color: '#444',
-                      lineHeight: '1.5',
-                      marginBottom: '15px'
-                    }}>
+                    <div className="message-content">
                       {msg.message}
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginBottom: '15px' }}>
+                    <div className="message-actions">
                       <button
                         onClick={() => handleToggleReply(msg.id)}
                         className="view-btn"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer' }}
+                        aria-label={replyingToMessageId === msg.id ? "Cancel reply" : "Reply to message"}
                       >
                         <Mail size={14} /> {replyingToMessageId === msg.id ? 'Cancel Reply' : 'Reply'}
                       </button>
                       <button
                         className="delete-btn"
                         onClick={() => handleDeleteMessage(msg.id)}
-                        style={{ padding: '8px 12px' }}
+                        aria-label="Delete message"
                       >
                         <Trash size={14} /> Delete
                       </button>
                     </div>
 
                     {replyingToMessageId === msg.id && (
-                      <div style={{
-                        background: '#ffffff',
-                        padding: '15px',
-                        borderRadius: '8px',
-                        border: '2px solid #3b82f6',
-                        marginTop: '10px'
-                      }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>
+                      <div className="reply-container">
+                        <label htmlFor={`reply-${msg.id}`}>
                           Your Reply:
                         </label>
                         <textarea
+                          id={`reply-${msg.id}`}
                           value={replyMessage}
                           onChange={(e) => setReplyMessage(e.target.value)}
                           placeholder="Type your reply here..."
                           rows="4"
-                          style={{
-                            width: '100%',
-                            padding: '12px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            fontSize: '14px',
-                            fontFamily: 'inherit',
-                            resize: 'vertical',
-                            marginBottom: '10px'
-                          }}
+                          className="reply-textarea"
                         />
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <div className="reply-actions">
                           <button
                             onClick={() => handleSendReply(msg)}
                             className="approve-btn"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '8px 16px' }}
+                            aria-label="Send reply"
                           >
                             <Mail size={14} /> Send Reply
                           </button>
@@ -900,7 +998,7 @@ const AdminPanel = () => {
                   <p>Total Users: <strong>{userStats.total}</strong></p>
                   <p>Admins: <strong>{userStats.admins}</strong></p>
                   <p>Heads: <strong>{userStats.heads}</strong></p>
-                  <p>Officer: <strong>{userStats.Officers}</strong></p>
+                  <p>Officers: <strong>{userStats.officers}</strong></p>
                   <p>Regular Users: <strong>{userStats.regular}</strong></p>
                 </div>
               </div>
@@ -930,237 +1028,233 @@ const AdminPanel = () => {
       </div>
 
       {/* User Modal */}
-      {
-        selectedUser && (
-          <div className="admin-modal-overlay" onClick={() => setSelectedUser(null)}>
-            <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-              <h3>User Details</h3>
-              <div className="detail-item">
-                <User size={16} />
-                <div>
-                  <strong>Name:</strong> {selectedUser.fullName || "N/A"}
+      {selectedUser && (
+        <div className="admin-modal-overlay" onClick={() => setSelectedUser(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>User Details</h3>
+            <div className="detail-item">
+              <User size={16} />
+              <div>
+                <strong>Name:</strong> {selectedUser.fullName || "N/A"}
+              </div>
+            </div>
+            <div className="detail-item">
+              <Mail size={16} />
+              <div>
+                <strong>Email:</strong> {selectedUser.email}
+              </div>
+            </div>
+            <div className="detail-item">
+              <Phone size={16} />
+              <div>
+                <strong>Phone:</strong> {selectedUser.phoneNumber || "N/A"}
+              </div>
+            </div>
+            <div className="detail-item">
+              <strong>Role:</strong>
+              <span className={`role-badge role-${selectedUser.role || 'user'}`}>
+                {displayRole(selectedUser.role)}
+              </span>
+            </div>
+            <div className="detail-item">
+              <Calendar size={16} />
+              <div>
+                <strong>Joined:</strong> {formatDate(selectedUser.createdAt)}
+              </div>
+            </div>
+            <button className="close-btn" onClick={() => setSelectedUser(null)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Event Details Modal */}
+      {selectedEvent && (
+        <div className="admin-modal-overlay" onClick={() => setSelectedEvent(null)}>
+          <div className="admin-modal event-details-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-with-title">
+              <div className="event-name-main">
+                <h2>{getEventName(selectedEvent)}</h2>
+                <h3 className="event-title-sub">Event Title: {getEventTitle(selectedEvent)}</h3>
+              </div>
+              <button className="close-modal-btn" onClick={() => setSelectedEvent(null)} aria-label="Close modal">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="event-detail-section">
+              <div className="section-label">
+                <h3>Event Information</h3>
+              </div>
+
+              <div className="detail-grid">
+                <div className="detail-item">
+                  <User size={16} />
+                  <div>
+                    <strong>Proposed By:</strong>
+                    <span>{selectedEvent.proposedBy || "N/A"}</span>
+                  </div>
+                </div>
+
+                <div className="detail-item">
+                  <Calendar size={16} />
+                  <div>
+                    <strong>Date:</strong>
+                    <span>{formatDate(selectedEvent.date)}</span>
+                  </div>
+                </div>
+
+                {selectedEvent.time && (
+                  <div className="detail-item">
+                    <Clock size={16} />
+                    <div>
+                      <strong>Time:</strong>
+                      <span>{formatTime(selectedEvent.time)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {selectedEvent.location && (
+                  <div className="detail-item">
+                    <MapPin size={16} />
+                    <div>
+                      <strong>Location:</strong>
+                      <span>{selectedEvent.location}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="detail-item">
+                  <Tag size={16} />
+                  <div>
+                    <strong>Event Type:</strong>
+                    <span>{getEventType(selectedEvent)}</span>
+                  </div>
+                </div>
+
+                <div className="detail-item">
+                  <div>
+                    <strong>Status:</strong>
+                    <span className={`status-badge status-${selectedEvent.status || 'pending'}`}>
+                      {selectedEvent.status || "pending"}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div className="detail-item">
-                <Mail size={16} />
-                <div>
-                  <strong>Email:</strong> {selectedUser.email}
+
+              {selectedEvent.description && (
+                <div className="detail-item full-width">
+                  <div>
+                    <strong>Description:</strong>
+                    <p className="description-text">{selectedEvent.description}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="detail-item">
-                <Phone size={16} />
-                <div>
-                  <strong>Phone:</strong> {selectedUser.phoneNumber || "N/A"}
+              )}
+
+              {selectedEvent.imageURL && (
+                <div className="detail-item full-width">
+                  <strong>Event Image:</strong>
+                  <div className="modal-image-container">
+                    <img
+                      src={selectedEvent.imageURL}
+                      alt="event"
+                      className="modal-image"
+                      loading="lazy"
+                    />
+                    <button
+                      className="view-full-image-btn"
+                      onClick={() => handleViewImage(selectedEvent.imageURL)}
+                      aria-label="View full image"
+                    >
+                      <Eye size={14} /> View Full Image
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="detail-item">
-                <strong>Role:</strong>
-                <span className={`role-badge role-${selectedUser.role || 'user'}`}>
-                  {displayRole(selectedUser.role)}
-                </span>
-              </div>
-              <div className="detail-item">
-                <Calendar size={16} />
-                <div>
-                  <strong>Joined:</strong> {formatDate(selectedUser.createdAt)}
-                </div>
-              </div>
-              <button className="close-btn" onClick={() => setSelectedUser(null)}>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              {selectedEvent.status === 'pending_admin' && (
+                <>
+                  <button
+                    className="approve-btn"
+                    onClick={() => {
+                      handleApproveEvent(selectedEvent.id);
+                      setSelectedEvent(null);
+                    }}
+                    aria-label="Approve event"
+                  >
+                    <Check size={16} /> Approve Event
+                  </button>
+                  <button
+                    className="reject-btn"
+                    onClick={() => {
+                      handleRejectEvent(selectedEvent.id);
+                      setSelectedEvent(null);
+                    }}
+                    aria-label="Reject event"
+                  >
+                    <X size={16} /> Reject Event
+                  </button>
+                </>
+              )}
+              <button className="close-btn" onClick={() => setSelectedEvent(null)}>
                 Close
               </button>
             </div>
           </div>
-        )
-      }
-
-      {/* Event Details Modal */}
-      {
-        selectedEvent && (
-          <div className="admin-modal-overlay" onClick={() => setSelectedEvent(null)}>
-            <div className="admin-modal event-details-modal" onClick={(e) => e.stopPropagation()}>
-
-              {/* EVENT NAME & TITLE HEADER */}
-              <div className="modal-header-with-title">
-                <div className="event-name-main">
-                  <h2>{getEventName(selectedEvent)}</h2>
-                  <h3 className="event-title-sub">Event Title: {getEventTitle(selectedEvent)}</h3>
-                </div>
-                <button className="close-modal-btn" onClick={() => setSelectedEvent(null)}>
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="event-detail-section">
-                <div className="section-label">
-                  <h3>Event Information</h3>
-                </div>
-
-                <div className="detail-grid">
-                  <div className="detail-item">
-                    <User size={16} />
-                    <div>
-                      <strong>Proposed By:</strong>
-                      <span>{selectedEvent.proposedBy || "N/A"}</span>
-                    </div>
-                  </div>
-
-                  <div className="detail-item">
-                    <Calendar size={16} />
-                    <div>
-                      <strong>Date:</strong>
-                      <span>{formatDate(selectedEvent.date)}</span>
-                    </div>
-                  </div>
-
-                  {selectedEvent.time && (
-                    <div className="detail-item">
-                      <Clock size={16} />
-                      <div>
-                        <strong>Time:</strong>
-                        <span>{formatTime(selectedEvent.time)}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedEvent.location && (
-                    <div className="detail-item">
-                      <MapPin size={16} />
-                      <div>
-                        <strong>Location:</strong>
-                        <span>{selectedEvent.location}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="detail-item">
-                    <Tag size={16} />
-                    <div>
-                      <strong>Event Type:</strong>
-                      <span>{getEventType(selectedEvent)}</span>
-                    </div>
-                  </div>
-
-                  <div className="detail-item">
-                    <div>
-                      <strong>Status:</strong>
-                      <span className={`status-badge status-${selectedEvent.status || 'pending'}`}>
-                        {selectedEvent.status || "pending"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {selectedEvent.description && (
-                  <div className="detail-item full-width">
-                    <div>
-                      <strong>Description:</strong>
-                      <p className="description-text">{selectedEvent.description}</p>
-                    </div>
-                  </div>
-                )}
-
-                {selectedEvent.imageURL && (
-                  <div className="detail-item full-width">
-                    <strong>Event Image:</strong>
-                    <div className="modal-image-container">
-                      <img
-                        src={selectedEvent.imageURL}
-                        alt="event"
-                        className="modal-image"
-                      />
-                      <button
-                        className="view-full-image-btn"
-                        onClick={() => handleViewImage(selectedEvent.imageURL)}
-                      >
-                        <Eye size={14} /> View Full Image
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="modal-actions">
-                {selectedEvent.status === 'pending_admin' && (
-                  <>
-                    <button
-                      className="approve-btn"
-                      onClick={() => {
-                        handleApproveEvent(selectedEvent.id);
-                        setSelectedEvent(null);
-                      }}
-                    >
-                      <Check size={16} /> Approve Event
-                    </button>
-                    <button
-                      className="reject-btn"
-                      onClick={() => {
-                        handleRejectEvent(selectedEvent.id);
-                        setSelectedEvent(null);
-                      }}
-                    >
-                      <X size={16} /> Reject Event
-                    </button>
-                  </>
-                )}
-                <button className="close-btn" onClick={() => setSelectedEvent(null)}>
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      }
+        </div>
+      )}
 
       {/* Full Image Viewer Modal */}
-      {
-        viewImage && (
-          <div className="image-viewer-overlay" onClick={handleCloseImageViewer}>
-            <div className="image-viewer-container" onClick={(e) => e.stopPropagation()}>
-              <div className="image-viewer-header">
-                <h3>Event Image</h3>
-                <button className="close-image-btn" onClick={handleCloseImageViewer}>
-                  <XCircle size={24} />
-                </button>
-              </div>
+      {viewImage && (
+        <div className="image-viewer-overlay" onClick={handleCloseImageViewer}>
+          <div className="image-viewer-container" onClick={(e) => e.stopPropagation()}>
+            <div className="image-viewer-header">
+              <h3>Event Image</h3>
+              <button className="close-image-btn" onClick={handleCloseImageViewer} aria-label="Close image viewer">
+                <XCircle size={24} />
+              </button>
+            </div>
 
-              <div className="image-viewer-controls">
-                <button onClick={handleZoomIn} title="Zoom In">
-                  <ZoomIn size={20} />
-                </button>
-                <button onClick={handleZoomOut} title="Zoom Out">
-                  <ZoomOut size={20} />
-                </button>
-                <button onClick={handleResetZoom} title="Reset Zoom">
-                  {imageZoom}x
-                </button>
-                <button onClick={handleRotate} title="Rotate">
-                  <RotateCw size={20} />
-                </button>
-                <button onClick={handleDownloadImage} title="Download Image">
-                  <Download size={20} />
-                </button>
-              </div>
+            <div className="image-viewer-controls">
+              <button onClick={handleZoomIn} title="Zoom In" aria-label="Zoom in">
+                <ZoomIn size={20} /> <span>Zoom In</span>
+              </button>
+              <button onClick={handleZoomOut} title="Zoom Out" aria-label="Zoom out">
+                <ZoomOut size={20} /> <span>Zoom Out</span>
+              </button>
+              <button onClick={handleResetZoom} title="Reset Zoom" aria-label="Reset zoom">
+                {imageZoom}x
+              </button>
+              <button onClick={handleRotate} title="Rotate" aria-label="Rotate image">
+                <RotateCw size={20} /> <span>Rotate</span>
+              </button>
+              <button onClick={handleDownloadImage} title="Download Image" aria-label="Download image">
+                <Download size={20} /> <span>Download</span>
+              </button>
+            </div>
 
-              <div className="image-viewer-content">
-                <img
-                  src={viewImage}
-                  alt="Full event"
-                  className="full-size-image"
-                  style={{
-                    transform: `scale(${imageZoom}) rotate(${imageRotation}deg)`,
-                    transition: 'transform 0.3s ease'
-                  }}
-                />
-              </div>
+            <div className="image-viewer-content">
+              <img
+                src={viewImage}
+                alt="Full event"
+                className="full-size-image"
+                style={{
+                  transform: `scale(${imageZoom}) rotate(${imageRotation}deg)`,
+                  transition: 'transform 0.3s ease'
+                }}
+              />
+            </div>
 
-              <div className="image-viewer-footer">
-                <p>Use controls to zoom, rotate, or download the image</p>
-              </div>
+            <div className="image-viewer-footer">
+              <p>Use controls to zoom, rotate, or download the image</p>
             </div>
           </div>
-        )
-      }
-    </div >
+        </div>
+      )}
+    </div>
   );
 };
 
