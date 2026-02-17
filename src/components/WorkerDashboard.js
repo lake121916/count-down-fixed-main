@@ -63,7 +63,6 @@ function WorkerDashboard() {
     { value: "hackathon", label: "Hackathon" },
     { value: "workshop", label: "Workshop" },
     { value: "conference", label: "Conference" },
-    { value: "meeting", label: "Meeting" },
     { value: "other", label: "Other" },
   ];
 

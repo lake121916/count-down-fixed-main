@@ -6,50 +6,82 @@ import "./Contact.css";
 
 const Contact = () => {
   const { currentUser } = useAuth();
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     message: "",
   });
+
   const [status, setStatus] = useState("");
 
-  // Pre-fill user info if logged in
+  // Auto-fill name & email if logged in
   useEffect(() => {
     if (currentUser) {
       setFormData(prev => ({
         ...prev,
-        name: currentUser.displayName || prev.name,
-        email: currentUser.email || prev.email
+        name: currentUser.displayName || "",
+        email: currentUser.email || ""
       }));
     }
-  }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser]);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
   };
 
   const sendEmail = async (e) => {
     e.preventDefault();
+
+    // 🔒 Extra Security Layer
+    if (!currentUser) {
+      setStatus("❌ You must login first.");
+      return;
+    }
+
     setStatus("Sending...");
 
     try {
       await addDoc(collection(db, "contact_messages"), {
-        name: formData.name,
+        name: formData.name.trim(),
         email: formData.email.toLowerCase().trim(),
-        message: formData.message,
+        message: formData.message.trim(),
         createdAt: serverTimestamp(),
         read: false,
-        senderUid: currentUser ? currentUser.uid : null,
-        senderRole: currentUser ? currentUser.role : "guest"
+        senderUid: currentUser.uid,
+        senderRole: currentUser.role || "user"
       });
 
-      setStatus("✅ Message sent to Admin successfully!");
-      setFormData(prev => ({ ...prev, message: "" }));
+      setStatus("✅ Message sent successfully!");
+      setFormData(prev => ({
+        ...prev,
+        message: ""
+      }));
+
     } catch (error) {
       console.error("Error sending message:", error);
       setStatus("❌ Failed to send message. Please try again.");
     }
   };
+
+  // 🔐 Block page if not logged in
+  if (!currentUser) {
+    return (
+      <div className="page">
+        <header className="header">
+          <h1>Contact Us</h1>
+        </header>
+
+        <main className="content" style={{ textAlign: "center", padding: "60px" }}>
+          <h2>🔒 Login Required</h2>
+          <p>You must be logged in to send a message to Admin.</p>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -58,49 +90,49 @@ const Contact = () => {
       </header>
 
       <main className="content">
+
+        {/* CONTACT INFO */}
         <section className="contact-info">
           <h2>Get in Touch</h2>
+
           <div className="contact-details">
+
             <div className="contact-item">
-              <i className="fas fa-phone"></i>
-              <div>
-                <strong>Tel:</strong>
-                <span>+251118132191</span>
-              </div>
+              <strong>Tel:</strong>
+              <span>+251118132191</span>
             </div>
+
             <div className="contact-item">
-              <i className="fas fa-envelope"></i>
-              <div>
-                <strong>Email:</strong>
-                <span>contact@mint.gov.et</span>
-              </div>
+              <strong>Email:</strong>
+              <span>contact@mint.gov.et</span>
             </div>
+
             <div className="contact-item">
-              <i className="fas fa-globe"></i>
-              <div>
-                <strong>Website:</strong>
-                <span>www.mint.gov.et</span>
-              </div>
+              <strong>Website:</strong>
+              <span>www.mint.gov.et</span>
             </div>
+
             <div className="contact-item">
-              <i className="fas fa-map-marker-alt"></i>
-              <div>
-                <strong>Address:</strong>
-                <span>Addis Ababa, Ethiopia</span>
-              </div>
+              <strong>Address:</strong>
+              <span>Addis Ababa, Ethiopia</span>
             </div>
+
           </div>
         </section>
 
+        {/* CONTACT FORM */}
         <section className="contact-form-section">
           <h2>Send us a Message</h2>
 
           <form onSubmit={sendEmail} className="contact-form">
+
             <div className="form-group">
+              <label htmlFor="name">Your Name</label>
               <input
                 type="text"
+                id="name"
                 name="name"
-                placeholder="Your Name"
+                placeholder="Enter your full name"
                 value={formData.name}
                 onChange={handleChange}
                 required
@@ -108,22 +140,25 @@ const Contact = () => {
             </div>
 
             <div className="form-group">
+              <label htmlFor="email">Your Email</label>
               <input
                 type="email"
+                id="email"
                 name="email"
-                placeholder="Your Email"
+                placeholder="Enter your email address"
                 value={formData.email}
                 onChange={handleChange}
                 required
-                readOnly={!!currentUser}
-                style={{ backgroundColor: currentUser ? "#f3f4f6" : "white" }}
+                style={{ backgroundColor: "#f3f4f6" }}
               />
             </div>
 
             <div className="form-group">
+              <label htmlFor="message">Your Message</label>
               <textarea
+                id="message"
                 name="message"
-                placeholder="Your Message"
+                placeholder="Type your message here..."
                 rows="5"
                 value={formData.message}
                 onChange={handleChange}
@@ -134,50 +169,19 @@ const Contact = () => {
             <button type="submit" className="submit-btn">
               Send Message
             </button>
+
           </form>
 
           {status && (
             <div
-              className={`status-message ${status.includes("✅") ? "success" : "error"
-                }`}
+              className={`status-message ${
+                status.includes("✅") ? "success" : "error"
+              }`}
             >
               {status}
             </div>
           )}
-        </section>
 
-        <section className="social">
-          <h2>Connect with Us</h2>
-          <div className="social-icons">
-            <a
-              href="https://www.facebook.com/MInT.Ethiopia"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <i className="fab fa-facebook"></i>
-              <span>Facebook</span>
-            </a>
-            <a href="#" target="_blank" rel="noopener noreferrer">
-              <i className="fab fa-twitter"></i>
-              <span>Twitter</span>
-            </a>
-            <a
-              href="https://www.linkedin.com/company/ministry-of-innovation-and-technology-ethiopia/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <i className="fab fa-linkedin"></i>
-              <span>LinkedIn</span>
-            </a>
-            <a
-              href="https://www.youtube.com/@MinistryofInnovationandTechnol"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <i className="fab fa-youtube"></i>
-              <span>YouTube</span>
-            </a>
-          </div>
         </section>
       </main>
     </div>

@@ -1,4 +1,4 @@
-// src/App.js
+// src/App.js - Remove the Signup route
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from "./components/AuthContext";
 import EventList from "./components/EventList";
 import AdminPanel from "./components/AdminPanel";
 import Login from "./components/login";
-import Signup from "./components/signup";
+// import Signup from "./components/signup";  // REMOVE THIS LINE
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import ApprovalPanel from "./components/ApprovalPanel";
@@ -16,12 +16,18 @@ import Dashboard from "./components/Dashboard";
 import Contact from "./components/Contact";
 import AboutUs from "./components/About";
 import UserDashboard from "./components/UserDashboard";
+import ChangePassword from "./components/ChangePassword";
 
 // Private route wrapper with role-based access
 function PrivateRoute({ children, allowedRoles = [] }) {
   const { currentUser } = useAuth();
 
   if (!currentUser) return <Navigate to="/login" />;
+
+  // Allow access to change-password for all authenticated users regardless of role
+  if (window.location.pathname === '/change-password') {
+    return children;
+  }
 
   if (allowedRoles.length > 0 && !allowedRoles.includes(currentUser.role)) {
     return <Navigate to="/" />;
@@ -42,9 +48,19 @@ function App() {
               {/* Public routes */}
               <Route path="/" element={<EventList />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
+              {/* <Route path="/signup" element={<Signup />} /> */} {/* REMOVE THIS LINE */}
               <Route path="/contact" element={<Contact />} />
               <Route path="/about" element={<AboutUs />} />  
+
+              {/* Password change route - Accessible to all authenticated users */}
+              <Route
+                path="/change-password"
+                element={
+                  <PrivateRoute>
+                    <ChangePassword />
+                  </PrivateRoute>
+                }
+              />
 
               {/* User Dashboard - For users with "user" role */}
               <Route
