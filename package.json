@@ -2,7 +2,6 @@
   "name": "countdown-app",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://Biruktawitkebede.github.io/event-count-down",
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "@fortawesome/fontawesome-svg-core": "^7.0.0",
