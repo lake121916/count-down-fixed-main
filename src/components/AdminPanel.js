@@ -48,6 +48,9 @@ const AdminPanel = () => {
   const [messages, setMessages] = useState([]);
   const [dashboardEvents, setDashboardEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [editingUserId, setEditingUserId] = useState(null);
   const [newRoleSelection, setNewRoleSelection] = useState("");
@@ -77,7 +80,7 @@ const AdminPanel = () => {
     monthlyEvents: []
   });
 
-  // Filter users based on search term
+  // Filter users based on search term - DEFINED HERE
   const filteredUsers = users.filter(user =>
     user.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -276,7 +279,6 @@ const AdminPanel = () => {
         hour12: true
       });
     }
-    
     return timestamp;
   };
 
@@ -301,11 +303,45 @@ const AdminPanel = () => {
     return date;
   };
 
+  // ------------------- FORMAT TIME -------------------
+  const formatTime = (time) => {
+    if (!time) return "N/A";
+    if (typeof time === 'string') return time;
+    if (time?.seconds) {
+      const d = new Date(time.seconds * 1000);
+      return d.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    }
+    return time;
+  };
+
   // ------------------- DISPLAY ROLE -------------------
   const displayRole = (role) => {
     if (role === 'worker') return 'Officer';
     if (role === 'officer') return 'Officer';
     return role || 'user';
+  };
+
+  // ------------------- GET EVENT TYPE -------------------
+  const getEventType = (event) => {
+    if (event.eventType) return event.eventType;
+    if (event.type) return event.type;
+    if (event.category) return event.category;
+    if (event.eventCategory) return event.eventCategory;
+    return "General";
+  };
+
+  // ------------------- GET EVENT NAME -------------------
+  const getEventName = (event) => {
+    return event.name || event.eventName || event.title || "Untitled Event";
+  };
+
+  // ------------------- GET EVENT TITLE -------------------
+  const getEventTitle = (event) => {
+    return event.title || event.eventTitle || "No Title";
   };
 
   // ------------------- CREATE USER -------------------
@@ -481,6 +517,14 @@ const AdminPanel = () => {
     }
   };
 
+  const handleKeyDown = (e, userId) => {
+    if (e.key === 'Enter') {
+      handleSaveRole(userId);
+    } else if (e.key === 'Escape') {
+      cancelEditing();
+    }
+  };
+
   const handleDeleteUser = async (userId) => {
     if (!window.confirm("Delete this user?")) return;
     
@@ -499,6 +543,99 @@ const AdminPanel = () => {
       setUpdateError("Error deleting user");
     }
   };
+
+  const handleDeleteMessage = async (id) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await deleteDoc(doc(db, "contact_messages", id));
+      setMessages(messages.filter(m => m.id !== id));
+      setUpdateSuccess("Message deleted!");
+    } catch (err) {
+      console.error("Error deleting message:", err);
+      setUpdateError("Error deleting message");
+    }
+  };
+
+  const handleToggleReply = (msgId) => {
+    if (replyingToMessageId === msgId) {
+      setReplyingToMessageId(null);
+      setReplyMessage("");
+    } else {
+      setReplyingToMessageId(msgId);
+      setReplyMessage("");
+    }
+  };
+
+  const handleSendReply = async (msg) => {
+    if (!replyMessage.trim()) {
+      setUpdateError("Please enter a reply");
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "admin_replies"), {
+        originalMessageId: msg.id,
+        originalMessage: msg.message,
+        recipientEmail: msg.email.toLowerCase().trim(),
+        recipientName: msg.name,
+        replyMessage: replyMessage,
+        sentBy: currentUser.email,
+        sentAt: serverTimestamp(),
+        read: false
+      });
+
+      setUpdateSuccess("Reply sent!");
+      setReplyingToMessageId(null);
+      setReplyMessage("");
+    } catch (err) {
+      console.error("Error sending reply:", err);
+      setUpdateError("Error sending reply");
+    }
+  };
+
+  const handleApproveEvent = async (eventId) => {
+    try {
+      await updateDoc(doc(db, "events", eventId), { status: "approved" });
+      fetchEvents();
+      setUpdateSuccess("Event approved!");
+    } catch (err) {
+      console.error("Error approving event:", err);
+      setUpdateError("Error approving event");
+    }
+  };
+
+  const handleRejectEvent = async (eventId) => {
+    try {
+      await updateDoc(doc(db, "events", eventId), { status: "rejected" });
+      fetchEvents();
+      setUpdateSuccess("Event rejected!");
+    } catch (err) {
+      console.error("Error rejecting event:", err);
+      setUpdateError("Error rejecting event");
+    }
+  };
+
+  const handleDeleteEvent = async (eventId) => {
+    if (!window.confirm("Delete this event?")) return;
+    try {
+      await deleteDoc(doc(db, "events", eventId));
+      fetchEvents();
+      setUpdateSuccess("Event deleted!");
+    } catch (err) {
+      console.error("Error deleting event:", err);
+      setUpdateError("Error deleting event");
+    }
+  };
+
+  // Filter events
+  const filteredEvents = events.filter(event => {
+    const matchesPending = showPendingOnly ? event.status === "pending_admin" : true;
+    const matchesSearch = eventSearchTerm === "" || 
+      getEventName(event).toLowerCase().includes(eventSearchTerm.toLowerCase()) ||
+      getEventTitle(event).toLowerCase().includes(eventSearchTerm.toLowerCase()) ||
+      (event.proposedBy && event.proposedBy.toLowerCase().includes(eventSearchTerm.toLowerCase()));
+    return matchesPending && matchesSearch;
+  });
 
   // Filter messages
   const filteredMessages = messages.filter(msg => 
@@ -522,7 +659,8 @@ const AdminPanel = () => {
     total: events.length,
     approved: events.filter(e => e.status === 'approved').length,
     pending: events.filter(e => e.status === 'pending_admin').length,
-    rejected: events.filter(e => e.status === 'rejected').length
+    rejected: events.filter(e => e.status === 'rejected').length,
+    withTitles: events.filter(e => e.title && e.title.trim() !== '').length
   };
 
   if (!currentUser) return <p>Loading...</p>;
@@ -534,13 +672,13 @@ const AdminPanel = () => {
       {updateError && (
         <div className="notification error">
           <X size={16} />
-          <span>{updateError}</span>
+          <span style={{ whiteSpace: 'pre-line' }}>{updateError}</span>
         </div>
       )}
       {updateSuccess && (
         <div className="notification success">
           <Check size={16} />
-          <span>{updateSuccess}</span>
+          <span style={{ whiteSpace: 'pre-line' }}>{updateSuccess}</span>
         </div>
       )}
 
@@ -688,63 +826,172 @@ const AdminPanel = () => {
           </>
         )}
 
-        {/* EVENTS TAB - Simplified */}
+        {/* EVENTS TAB */}
         {activeTab === "events" && (
-          <div className="tab-content">
-            <h2>Event Management</h2>
-            <p>Events functionality here</p>
-          </div>
+          <>
+            <div className="tab-header">
+              <h2>Event Management</h2>
+              <div className="header-actions">
+                <div className="search-box">
+                  <input
+                    type="text"
+                    placeholder="Search events..."
+                    value={eventSearchTerm}
+                    onChange={(e) => setEventSearchTerm(e.target.value)}
+                    className="search-input"
+                  />
+                </div>
+                <button
+                  className={`admin-btn ${showPendingOnly ? 'active' : ''}`}
+                  onClick={() => setShowPendingOnly(!showPendingOnly)}
+                >
+                  {showPendingOnly ? "All Events" : "Pending Only"}
+                </button>
+              </div>
+            </div>
+
+            <div className="stats-cards">
+              <div className="stat-card">
+                <CalendarDays size={24} />
+                <div><h3>Total</h3><p>{eventStats.total}</p></div>
+              </div>
+              <div className="stat-card">
+                <Check size={24} />
+                <div><h3>Approved</h3><p>{eventStats.approved}</p></div>
+              </div>
+              <div className="stat-card">
+                <Clock size={24} />
+                <div><h3>Pending</h3><p>{eventStats.pending}</p></div>
+              </div>
+              <div className="stat-card">
+                <X size={24} />
+                <div><h3>Rejected</h3><p>{eventStats.rejected}</p></div>
+              </div>
+            </div>
+
+            {loading ? (
+              <p className="loading-message">Loading events...</p>
+            ) : filteredEvents.length === 0 ? (
+              <p className="no-data-message">No events found</p>
+            ) : (
+              <div className="table-responsive">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Event</th>
+                      <th>Title</th>
+                      <th>Type</th>
+                      <th>Proposed By</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredEvents.map((ev) => (
+                      <tr key={ev.id}>
+                        <td><strong>{getEventName(ev)}</strong></td>
+                        <td><span className="event-title-badge">{getEventTitle(ev)}</span></td>
+                        <td><span className="event-type">{getEventType(ev)}</span></td>
+                        <td>{ev.proposedBy || "N/A"}</td>
+                        <td>{formatDate(ev.date)}</td>
+                        <td>
+                          <span className={`status-badge status-${ev.status || 'pending'}`}>
+                            {ev.status || "pending"}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="action-buttons">
+                            {ev.status === 'pending_admin' && (
+                              <>
+                                <button className="approve-btn" onClick={() => handleApproveEvent(ev.id)}><Check size={16} /></button>
+                                <button className="reject-btn" onClick={() => handleRejectEvent(ev.id)}><X size={16} /></button>
+                              </>
+                            )}
+                            <button className="delete-btn" onClick={() => handleDeleteEvent(ev.id)}><Trash size={16} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
 
-        {/* DASHBOARD TAB - Simplified */}
+        {/* DASHBOARD TAB */}
         {activeTab === "dashboard" && (
-          <div className="tab-content">
+          <>
             <h2>My Dashboard</h2>
             {dashboardEvents.length === 0 ? (
-              <p>No events in dashboard</p>
+              <p className="no-data-message">No events in dashboard</p>
             ) : (
               <div className="dashboard-grid">
-                {dashboardEvents.map(event => (
+                {dashboardEvents.map((event) => (
                   <div key={event.id} className="dashboard-card">
-                    <h4>{event.name || event.title}</h4>
+                    <h4>{getEventName(event)}</h4>
                     <p>{event.description}</p>
+                    <p><Calendar size={14} /> {formatDate(event.date)}</p>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </>
         )}
 
-        {/* MESSAGES TAB - Simplified */}
+        {/* MESSAGES TAB */}
         {activeTab === "messages" && (
-          <div className="tab-content">
-            <h2>Messages</h2>
-            <div className="search-box">
-              <input
-                type="text"
-                placeholder="Search messages..."
-                value={messageSearchTerm}
-                onChange={(e) => setMessageSearchTerm(e.target.value)}
-                className="search-input"
-              />
+          <>
+            <div className="tab-header">
+              <h2>Messages</h2>
+              <div className="search-box">
+                <input
+                  type="text"
+                  placeholder="Search messages..."
+                  value={messageSearchTerm}
+                  onChange={(e) => setMessageSearchTerm(e.target.value)}
+                  className="search-input"
+                />
+              </div>
             </div>
+
             {filteredMessages.length === 0 ? (
-              <p>No messages</p>
+              <p className="no-data-message">No messages</p>
             ) : (
-              filteredMessages.map(msg => (
-                <div key={msg.id} className="message-card">
-                  <h4>{msg.name}</h4>
-                  <p>{msg.email}</p>
-                  <p>{msg.message}</p>
-                </div>
-              ))
+              <div className="messages-list">
+                {filteredMessages.map((msg) => (
+                  <div key={msg.id} className="message-card">
+                    <h4>{msg.name}</h4>
+                    <p><Mail size={14} /> {msg.email}</p>
+                    <p>{msg.message}</p>
+                    <div className="message-actions">
+                      <button onClick={() => handleToggleReply(msg.id)} className="view-btn">
+                        {replyingToMessageId === msg.id ? 'Cancel' : 'Reply'}
+                      </button>
+                      <button className="delete-btn" onClick={() => handleDeleteMessage(msg.id)}><Trash size={14} /> Delete</button>
+                    </div>
+                    {replyingToMessageId === msg.id && (
+                      <div className="reply-container">
+                        <textarea
+                          value={replyMessage}
+                          onChange={(e) => setReplyMessage(e.target.value)}
+                          placeholder="Type reply..."
+                          rows="3"
+                        />
+                        <button onClick={() => handleSendReply(msg)} className="approve-btn">Send</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
+          </>
         )}
 
-        {/* ANALYTICS TAB - Simplified */}
+        {/* ANALYTICS TAB */}
         {activeTab === "analytics" && (
-          <div className="tab-content">
+          <>
             <h2>Analytics</h2>
             <div className="analytics-grid">
               <div className="analytics-card">
@@ -759,8 +1006,14 @@ const AdminPanel = () => {
                 <p>Approved: {eventStats.approved}</p>
                 <p>Pending: {eventStats.pending}</p>
               </div>
+              <div className="analytics-card">
+                <h3>Event Types</h3>
+                {analyticsData.eventCategories.map((cat, idx) => (
+                  <p key={idx}>{cat.name}: {cat.value}</p>
+                ))}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -776,40 +1029,19 @@ const AdminPanel = () => {
             <form onSubmit={handleCreateUser}>
               <div className="form-group">
                 <label>Full Name *</label>
-                <input
-                  type="text"
-                  value={newUserData.fullName}
-                  onChange={(e) => setNewUserData({...newUserData, fullName: e.target.value})}
-                  required
-                />
+                <input type="text" value={newUserData.fullName} onChange={(e) => setNewUserData({...newUserData, fullName: e.target.value})} required />
               </div>
-
               <div className="form-group">
                 <label>Email *</label>
-                <input
-                  type="email"
-                  value={newUserData.email}
-                  onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
-                  required
-                />
+                <input type="email" value={newUserData.email} onChange={(e) => setNewUserData({...newUserData, email: e.target.value})} required />
               </div>
-
               <div className="form-group">
                 <label>Phone *</label>
-                <input
-                  type="tel"
-                  value={newUserData.phoneNumber}
-                  onChange={(e) => setNewUserData({...newUserData, phoneNumber: e.target.value})}
-                  required
-                />
+                <input type="tel" value={newUserData.phoneNumber} onChange={(e) => setNewUserData({...newUserData, phoneNumber: e.target.value})} required />
               </div>
-
               <div className="form-group">
                 <label>Role *</label>
-                <select
-                  value={newUserData.role}
-                  onChange={(e) => setNewUserData({...newUserData, role: e.target.value})}
-                >
+                <select value={newUserData.role} onChange={(e) => setNewUserData({...newUserData, role: e.target.value})}>
                   <option value="user">User</option>
                   <option value="officer">Officer</option>
                   <option value="head">Head</option>
