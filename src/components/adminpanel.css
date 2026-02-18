@@ -49,7 +49,7 @@
 }
 
 /* =====================
-   SIDEBAR STYLES - FIXED
+   SIDEBAR STYLES
 ===================== */
 .admin-tabs-vertical {
   position: sticky;
@@ -68,6 +68,7 @@
   z-index: 100;
   transition: all 0.3s ease;
   flex-shrink: 0;
+  overflow-y: auto;
 }
 
 .admin-tabs-vertical.collapsed {
@@ -139,26 +140,6 @@
   transform: rotate(180deg);
 }
 
-/* Mobile menu toggle button - hidden by default */
-.mobile-menu-toggle {
-  display: none;
-  position: fixed;
-  top: 20px;
-  left: 20px;
-  z-index: 1000;
-  background: #0b6666;
-  border: none;
-  color: white;
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  font-size: 24px;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  align-items: center;
-  justify-content: center;
-}
-
 /* =====================
    MAIN CONTENT AREA
 ===================== */
@@ -166,7 +147,7 @@
   flex: 1;
   padding: 40px 50px 80px 50px;
   transition: all 0.3s ease;
-  min-width: 0; /* Prevent flex item from overflowing */
+  min-width: 0;
   width: 100%;
 }
 
@@ -1270,66 +1251,72 @@
 }
 
 @media (max-width: 768px) {
-  /* Mobile menu toggle button */
-  .mobile-menu-toggle {
-    display: flex;
+  /* Keep sidebar vertical but make it smaller */
+  .admin-panel-container {
+    flex-direction: column;
   }
   
-  /* Sidebar becomes a slide-out panel */
   .admin-tabs-vertical {
-    position: fixed;
-    top: 0;
-    left: -280px;
-    width: 280px;
-    min-height: 100vh;
-    padding: 80px 20px 40px 20px;
-    border-radius: 0 16px 16px 0;
-    transition: left 0.3s ease;
-    z-index: 999;
-    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
-  }
-  
-  .admin-tabs-vertical.mobile-open {
-    left: 0;
+    position: relative;
+    width: 100%;
+    min-height: auto;
+    padding: 20px 15px 15px 15px;
+    border-radius: 0;
+    flex-direction: column;
+    align-items: stretch;
   }
   
   .admin-tabs-vertical.collapsed {
-    width: 80px;
-    left: -80px;
-  }
-  
-  .admin-tabs-vertical.collapsed.mobile-open {
-    left: 0;
-  }
-  
-  /* Adjust collapse button for mobile */
-  .collapse-btn {
-    top: 15px;
-    right: 15px;
-  }
-  
-  /* Main content adjustments */
-  .admin-main-content {
-    padding: 80px 20px 50px 20px;
-    margin-left: 0 !important;
     width: 100%;
+    padding: 20px 15px;
   }
   
-  /* Overlay when sidebar is open */
-  .sidebar-overlay {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 998;
-    backdrop-filter: blur(3px);
+  .admin-tabs-vertical.collapsed button {
+    justify-content: flex-start;
+    padding: 14px 16px;
   }
   
-  .sidebar-overlay.active {
-    display: block;
+  .admin-tabs-vertical.collapsed button span {
+    display: inline;
+  }
+  
+  .admin-tabs-vertical button {
+    width: 100%;
+    justify-content: flex-start;
+    font-size: 14px;
+    padding: 12px 16px;
+  }
+  
+  .admin-tabs-vertical button:hover {
+    transform: none;
+  }
+  
+  .collapse-btn {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.15);
+  }
+  
+  .collapse-btn span {
+    display: inline !important;
+    font-size: 14px;
+  }
+  
+  .admin-main-content {
+    padding: 25px 20px 50px 20px;
+    margin-left: 0 !important;
+  }
+  
+  .admin-main-content h2 {
+    font-size: 24px;
+    margin-top: 10px;
   }
   
   .tab-header {
@@ -1341,6 +1328,25 @@
   .search-input {
     min-width: auto;
     width: 100%;
+  }
+  
+  .stats-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  
+  .stat-card {
+    padding: 12px;
+  }
+  
+  .stat-card svg {
+    width: 24px;
+    height: 24px;
+    padding: 6px;
+  }
+  
+  .stat-card p {
+    font-size: 18px;
   }
   
   .dashboard-grid {
@@ -1425,25 +1431,6 @@
     margin-bottom: 8px;
   }
   
-  .stats-cards {
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  
-  .stat-card {
-    padding: 12px;
-  }
-  
-  .stat-card svg {
-    width: 24px;
-    height: 24px;
-    padding: 6px;
-  }
-  
-  .stat-card p {
-    font-size: 18px;
-  }
-  
   .message-header {
     flex-direction: column;
   }
@@ -1451,57 +1438,24 @@
   .message-time {
     text-align: left;
   }
-  
-  .modal-header-with-title {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  
-  .close-modal-btn {
-    align-self: flex-end;
-  }
-  
-  .event-name-main h2 {
-    font-size: 20px;
-  }
 }
 
 @media (max-width: 480px) {
-  .mobile-menu-toggle {
-    top: 15px;
-    left: 15px;
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-  }
-  
   .admin-tabs-vertical {
-    width: 240px;
-    left: -240px;
-    padding: 70px 15px 30px 15px;
-  }
-  
-  .admin-tabs-vertical.collapsed {
-    width: 70px;
-    left: -70px;
+    padding: 15px 12px;
   }
   
   .admin-tabs-vertical button {
-    padding: 12px;
-    font-size: 14px;
-  }
-  
-  .admin-tabs-vertical.collapsed button {
-    padding: 12px;
+    padding: 10px 12px;
+    font-size: 13px;
   }
   
   .admin-main-content {
-    padding: 70px 15px 40px 15px;
+    padding: 20px 15px 40px 15px;
   }
   
   .admin-main-content h2 {
-    font-size: 24px;
+    font-size: 22px;
   }
   
   .stats-cards {
@@ -1577,14 +1531,8 @@
 
 /* Very small screens */
 @media (max-width: 360px) {
-  .mobile-menu-toggle {
-    width: 36px;
-    height: 36px;
-    font-size: 18px;
-  }
-  
   .admin-main-content {
-    padding: 65px 10px 30px 10px;
+    padding: 15px 10px;
   }
   
   .tab-header h2 {
@@ -1608,8 +1556,7 @@
   .admin-tabs-vertical button,
   .admin-btn,
   .close-btn,
-  .modal-actions button,
-  .mobile-menu-toggle {
+  .modal-actions button {
     min-height: 44px;
     min-width: 44px;
   }
@@ -1634,9 +1581,7 @@
   .action-buttons button,
   .admin-btn,
   .modal-actions button,
-  .notification,
-  .admin-tabs-vertical,
-  .mobile-menu-toggle {
+  .notification {
     transition: none;
     transform: none;
     animation: none;
@@ -1650,8 +1595,7 @@
 .close-btn:focus-visible,
 .modal-actions button:focus-visible,
 .search-input:focus-visible,
-.role-select:focus-visible,
-.mobile-menu-toggle:focus-visible {
+.role-select:focus-visible {
   outline: 2px solid #0b6666;
   outline-offset: 2px;
 }
@@ -1687,9 +1631,7 @@
   .modal-actions,
   .close-btn,
   .notification,
-  .image-viewer-overlay,
-  .mobile-menu-toggle,
-  .sidebar-overlay {
+  .image-viewer-overlay {
     display: none !important;
   }
   
