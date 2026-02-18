@@ -7,6 +7,7 @@
   background-color: #f8fafc;
   font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
   position: relative;
+  width: 100%;
 }
 
 /* Notification Styles */
@@ -48,7 +49,7 @@
 }
 
 /* =====================
-   SIDEBAR STYLES
+   SIDEBAR STYLES - FIXED
 ===================== */
 .admin-tabs-vertical {
   position: sticky;
@@ -66,6 +67,7 @@
   border-bottom-right-radius: 16px;
   z-index: 100;
   transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
 .admin-tabs-vertical.collapsed {
@@ -122,6 +124,7 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.3s ease;
+  z-index: 101;
 }
 
 .collapse-btn:hover {
@@ -136,6 +139,26 @@
   transform: rotate(180deg);
 }
 
+/* Mobile menu toggle button - hidden by default */
+.mobile-menu-toggle {
+  display: none;
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  background: #0b6666;
+  border: none;
+  color: white;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  align-items: center;
+  justify-content: center;
+}
+
 /* =====================
    MAIN CONTENT AREA
 ===================== */
@@ -143,6 +166,8 @@
   flex: 1;
   padding: 40px 50px 80px 50px;
   transition: all 0.3s ease;
+  min-width: 0; /* Prevent flex item from overflowing */
+  width: 100%;
 }
 
 .admin-main-content.expanded {
@@ -1228,7 +1253,7 @@
 }
 
 /* =====================
-   RESPONSIVE DESIGN
+   RESPONSIVE DESIGN - FIXED
 ===================== */
 @media (max-width: 1024px) {
   .admin-tabs-vertical {
@@ -1245,38 +1270,66 @@
 }
 
 @media (max-width: 768px) {
-  .admin-panel-container {
-    flex-direction: column;
+  /* Mobile menu toggle button */
+  .mobile-menu-toggle {
+    display: flex;
   }
   
+  /* Sidebar becomes a slide-out panel */
   .admin-tabs-vertical {
-    position: relative;
-    width: 100%;
-    min-height: auto;
-    flex-direction: row;
-    justify-content: center;
-    flex-wrap: wrap;
-    padding: 80px 15px 20px 15px;
-    border-radius: 0;
-    gap: 8px;
+    position: fixed;
+    top: 0;
+    left: -280px;
+    width: 280px;
+    min-height: 100vh;
+    padding: 80px 20px 40px 20px;
+    border-radius: 0 16px 16px 0;
+    transition: left 0.3s ease;
+    z-index: 999;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
   }
   
-  .admin-tabs-vertical button {
-    width: auto;
-    flex: 1;
-    min-width: 120px;
-    justify-content: center;
-    font-size: 14px;
-    padding: 12px 8px;
+  .admin-tabs-vertical.mobile-open {
+    left: 0;
   }
   
-  .admin-tabs-vertical button:hover {
-    transform: translateY(-2px);
+  .admin-tabs-vertical.collapsed {
+    width: 80px;
+    left: -80px;
   }
   
+  .admin-tabs-vertical.collapsed.mobile-open {
+    left: 0;
+  }
+  
+  /* Adjust collapse button for mobile */
+  .collapse-btn {
+    top: 15px;
+    right: 15px;
+  }
+  
+  /* Main content adjustments */
   .admin-main-content {
-    padding: 25px 20px 50px 20px;
+    padding: 80px 20px 50px 20px;
     margin-left: 0 !important;
+    width: 100%;
+  }
+  
+  /* Overlay when sidebar is open */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
+    backdrop-filter: blur(3px);
+  }
+  
+  .sidebar-overlay.active {
+    display: block;
   }
   
   .tab-header {
@@ -1415,18 +1468,36 @@
 }
 
 @media (max-width: 480px) {
+  .mobile-menu-toggle {
+    top: 15px;
+    left: 15px;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+  
   .admin-tabs-vertical {
-    padding: 70px 10px 15px 10px;
+    width: 240px;
+    left: -240px;
+    padding: 70px 15px 30px 15px;
+  }
+  
+  .admin-tabs-vertical.collapsed {
+    width: 70px;
+    left: -70px;
   }
   
   .admin-tabs-vertical button {
-    min-width: 100px;
-    font-size: 13px;
-    padding: 10px 6px;
+    padding: 12px;
+    font-size: 14px;
+  }
+  
+  .admin-tabs-vertical.collapsed button {
+    padding: 12px;
   }
   
   .admin-main-content {
-    padding: 20px 15px 40px 15px;
+    padding: 70px 15px 40px 15px;
   }
   
   .admin-main-content h2 {
@@ -1506,8 +1577,14 @@
 
 /* Very small screens */
 @media (max-width: 360px) {
+  .mobile-menu-toggle {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+  
   .admin-main-content {
-    padding: 15px 10px;
+    padding: 65px 10px 30px 10px;
   }
   
   .tab-header h2 {
@@ -1531,7 +1608,8 @@
   .admin-tabs-vertical button,
   .admin-btn,
   .close-btn,
-  .modal-actions button {
+  .modal-actions button,
+  .mobile-menu-toggle {
     min-height: 44px;
     min-width: 44px;
   }
@@ -1556,7 +1634,9 @@
   .action-buttons button,
   .admin-btn,
   .modal-actions button,
-  .notification {
+  .notification,
+  .admin-tabs-vertical,
+  .mobile-menu-toggle {
     transition: none;
     transform: none;
     animation: none;
@@ -1570,7 +1650,8 @@
 .close-btn:focus-visible,
 .modal-actions button:focus-visible,
 .search-input:focus-visible,
-.role-select:focus-visible {
+.role-select:focus-visible,
+.mobile-menu-toggle:focus-visible {
   outline: 2px solid #0b6666;
   outline-offset: 2px;
 }
@@ -1606,7 +1687,9 @@
   .modal-actions,
   .close-btn,
   .notification,
-  .image-viewer-overlay {
+  .image-viewer-overlay,
+  .mobile-menu-toggle,
+  .sidebar-overlay {
     display: none !important;
   }
   
